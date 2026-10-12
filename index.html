@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOSAIC: Mode- and Support-Aware Inference-Time Control of Robot Diffusion Models</title>
+<meta name="description" content="MOSAIC is a gradient-free framework that steers frozen robot diffusion models at inference time while preserving modes and learned support, and composes independent priors without a joint model." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="MOSAIC: Mode- and Support-Aware Inference-Time Control of Robot Diffusion Models" />
+<meta property="og:description" content="Gradient-free, mode- and support-aware inference-time control of frozen robot diffusion models." />
+<meta property="og:image" content="assets/img/og.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap">
+    <a class="brand" href="#top">MOSAIC</a>
+    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    <div class="navlinks">
+      <a class="navlink" href="#overview">Overview</a>
+      <a class="navlink" href="#problem">Problem</a>
+      <a class="navlink" href="#method">Method</a>
+      <a class="navlink" href="#tasks">Tasks</a>
+      <a class="navlink" href="#results">Results</a>
+      <a class="navlink" href="#hardware">Hardware</a>
+      <a class="navlink" href="#video">Video</a>
+      <a class="navlink" href="#bibtex">BibTeX</a>
+    </div>
+  </div>
+</nav>
+
+<header id="top" class="hero">
+  <div class="wrap">
+    <span class="badge">Preprint</span>
+    <h1>MOSAIC: Mode- and Support-Aware Inference-Time Control of Robot Diffusion Models</h1>
+    <p class="authors">Sabrina Bodmer<sup>1</sup>, Rahel Rickenbach<sup>1</sup>, Ren&eacute; Zurbr&uuml;gg<sup>1</sup>, Melanie N. Zeilinger<sup>&dagger;1</sup>, Colin Jones<sup>&dagger;2</sup></p>
+    <p class="affil"><sup>1</sup>Department of Mechanical and Process Engineering, ETH Z&uuml;rich &nbsp;&middot;&nbsp; <sup>2</sup>Automatic Control Laboratory, EPFL</p>
+    <p class="note-eq"><sup>&dagger;</sup>Equal supervision</p>
+
+    <p class="section-lead" style="text-align:center; max-width:760px; margin:18px auto 0;"><b>TL;DR:</b> MOSAIC steers frozen robot diffusion models to new constraints at inference time, without gradients or retraining, while keeping diverse solutions.</p>
+
+    <div class="btn-row">
+      <a class="btn primary" href="#">arXiv</a>
+      <a class="btn ghost" href="#video">Video</a>
+    </div>
+
+    <figure class="hero-figure">
+      <img src="assets/img/teaser.jpg" alt="Two frozen single-arm diffusion priors coupled at inference time to carry a pan from a table to a stove" />
+      <figcaption><b>Inference-time composition.</b> MOSAIC couples independent diffusion priors through a shared objective, enabling coordinated behavior without joint training.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="overview" class="section abstract">
+  <div class="wrap">
+    <p class="eyebrow">Abstract</p>
+    <p>Generative policies such as diffusion models provide expressive data-driven priors for robot behavior, yet the situations a robot faces at execution time rarely match its training data and impose constraints and objectives the policy never learned. Existing inference-time guidance methods either rely on gradients that can push samples away from the learned prior, or on sampling procedures that can be inefficient, collapse modes, or average them into out-of-distribution predictions.</p>
+    <p>We introduce MOSAIC, a mode- and support-aware framework for gradient-free inference-time control of robotic diffusion models. MOSAIC treats the initial noise and all stochastic reverse-step perturbations as a joint input to the pretrained denoising process and adapts a distribution over this input using importance weights computed from fully denoised outputs. Physical feasibility and consistency with the learned support are balanced using adaptive penalties, while mode-wise importance-weighted updates preserve modes and avoid destructive averaging.</p>
+    <p>The same formulation can jointly steer multiple independently trained diffusion models through shared coupling costs, enabling coordinated behavior without requiring a joint model. We evaluate MOSAIC on navigation, dexterous grasping, motion planning with unseen geometry, and collaborative box manipulation with independently trained robot priors. Across these settings, MOSAIC adapts and composes frozen diffusion priors under new deployment constraints without retraining.</p>
+
+    <div class="media-row cols-2" style="margin-top:30px;">
+      <figure class="figure-card">
+        <video class="clip" style="aspect-ratio:16/9; object-fit:cover; width:100%;" src="assets/video/clip_hw_intro.mp4" muted loop playsinline preload="metadata" data-lazy poster="assets/img/poster.jpg"></video>
+        <p class="clip-cap">Two independently trained single-arm priors lift a pan together.</p>
+      </figure>
+      <figure class="figure-card">
+        <video class="clip" style="aspect-ratio:16/9; object-fit:cover; width:100%;" src="assets/video/clip_hw_pan_single.mp4" muted loop playsinline preload="metadata" data-lazy></video>
+        <p class="clip-cap">Pinch grasp, small pan (1.5&times;).</p>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="problem" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Motivation</p>
+    <h2 class="section-title">The Problem</h2>
+    <p class="section-lead">A diffusion model trained offline captures many valid behaviors, such as grasps, paths, or arm motions. At deployment, though, new obstacles, robot-specific constraints, or a second robot appear that the model never saw. We want to adapt its outputs to these new requirements without retraining. Three things make this hard:</p>
+    <div class="steps">
+      <div class="step"><div class="k">1</div><h3>Costs are hard to differentiate</h3><p>Collision checks, inverse kinematics, and grasp stability are often non-differentiable or only meaningful for a fully denoised output, so gradient guidance does not apply.</p></div>
+      <div class="step"><div class="k">2</div><h3>Samples can leave the prior</h3><p>An output can satisfy the new constraint yet fall outside what the model learned, giving behavior that is feasible on paper but implausible.</p></div>
+      <div class="step"><div class="k">3</div><h3>Modes get averaged or lost</h3><p>Merging paths that pass on opposite sides of an obstacle gives a path through it. Repeated resampling can also drop whole solution families.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="method" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Method</p>
+    <h2 class="section-title">How it works</h2>
+    <p class="section-lead">A diffusion model generates an output by starting from random noise and denoising it step by step. If we fix the initial noise and the small random perturbations added at each step, the whole process becomes a deterministic function from noise to output. MOSAIC treats the frozen model as this black box. It tries many noise inputs, scores the <i>final</i> outputs with any cost we like, and shifts the sampling distribution toward the better inputs. This is repeated for a few iterations.</p>
+    <figure class="figure-card">
+      <img src="assets/img/overview.png" alt="MOSAIC overview" />
+      <figcaption>MOSAIC samples noise inputs, runs the full denoising process, scores the outputs, and updates each mode separately.</figcaption>
+    </figure>
+    <div class="steps">
+      <div class="step"><div class="k">1</div><h3>Gradient-free</h3><p>Costs such as collisions, kinematic feasibility, or grasp stability are evaluated on fully denoised outputs, where they are most meaningful. They do not need to be differentiable, and the model is never modified.</p></div>
+      <div class="step"><div class="k">2</div><h3>Keeps modes and support</h3><p>Outputs are grouped into modes (e.g. passing an obstacle left or right) and each mode is updated separately, so they are not averaged together. A support cost penalizes outputs that are unlikely under the learned prior, and the penalty weights adapt automatically during the iterations.</p></div>
+      <div class="step"><div class="k">3</div><h3>Composes priors</h3><p>For two arms, each model gets its own noise input and the pair is scored together with a coupling cost (e.g. a consistent grasp on the same box). Both are updated jointly, so no bimanual model is needed.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="tasks" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Tasks</p>
+    <h2 class="section-title">Evaluation Tasks</h2>
+    <p class="section-lead">We evaluate on four tasks with frozen pretrained models. At test time we add constraints the models never saw during training.</p>
+    <ul style="margin:0 0 22px; padding-left:20px; color:var(--muted); line-height:1.7;">
+      <li><b>Navigation:</b> a multimodal 2D path prior, with new obstacles added at inference time.</li>
+      <li><b>Grasping:</b> a Franka arm with a dexterous hand; grasps must be kinematically feasible, collision-free, and stable.</li>
+      <li><b>Path planning:</b> collision-free arm trajectories around unseen geometry, including with a tool attached.</li>
+      <li><b>Box manipulation:</b> two arms, each with its own prior, jointly move a box to a target pose.</li>
+    </ul>
+    <figure class="figure-card">
+      <img src="assets/img/tasks.png" alt="Evaluated tasks: robot navigation, grasping, path planning, box manipulation" />
+    </figure>
+    <figure class="figure-card" style="max-width:640px; margin-left:auto; margin-right:auto;">
+      <img src="assets/img/maze.png" alt="2D navigation examples" />
+      <figcaption><b>2D navigation.</b> Striped obstacles appear only at inference time; shaded walls are known only to the prior. FK steering collapses to one route and Path-Space MPPI averages modes, while MOSAIC keeps several feasible routes.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="results" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Results</p>
+    <h2 class="section-title">Results</h2>
+    <p class="section-lead">Success rate (%) on each task, compared with unguided sampling (DDIM), gradient guidance, and three sampling-based methods (FK steering, Path-Space MPPI, NDPP). All methods use the same frozen model, number of denoising steps, and initial samples. Mean over three seeds; grasping uses 280 grasps.</p>
+    <div class="table-scroll">
+      <table class="results">
+        <thead><tr><th style="text-align:left">Method</th><th>Navigation</th><th>Grasping</th><th>Planning</th><th>Planning + tool</th><th>Box manipulation</th></tr></thead>
+        <tbody>
+          <tr><td>DDIM</td><td>13.8</td><td>19.6</td><td>46.7</td><td>44.0</td><td>0.0</td></tr>
+          <tr><td>Gradient Guidance</td><td>4.4</td><td>27.5</td><td>52.7</td><td>52.7</td><td>0.0</td></tr>
+          <tr><td>FK Steering</td><td class="best">90.9</td><td class="second">51.1</td><td>51.3</td><td>50.0</td><td>24.0</td></tr>
+          <tr><td>Path-Space MPPI</td><td>45.8</td><td>21.1</td><td>58.7</td><td>52.7</td><td>29.3</td></tr>
+          <tr><td>NDPP</td><td>41.7</td><td>32.9</td><td class="second">76.7</td><td class="second">71.3</td><td class="second">42.7</td></tr>
+          <tr class="group-start"><td>MOSAIC (Ours)</td><td class="second">80.7</td><td class="best">53.2</td><td class="best">86.7</td><td class="best">79.3</td><td class="best">78.7</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="legend"><b>Bold</b> = best, <u>underline</u> = second best. A sample counts as a success only if it satisfies the task constraints, e.g. no waypoint collides in navigation, or the box reaches its target within 2 cm and 5° while the two hands stay within 3 cm of their relative distance.</p>
+    <div class="steps" style="margin-top:28px;">
+      <div class="step"><h3>Keeps diversity</h3><p>FK steering has the highest navigation success, but only 55.7% of its solutions are unique, so it collapses onto few routes. MOSAIC reaches 80.7% success while 99.5% of solutions stay unique.</p></div>
+      <div class="step"><h3>Stays on the prior</h3><p>The maze walls are known only to the prior, not to the cost. With the support cost, wall collisions drop from 23.2% to 3.9% and success rises from 67.2% to 80.7%.</p></div>
+      <div class="step"><h3>Coordinates two arms</h3><p>Two independent single-arm priors reach 78.7% success on box manipulation versus 42.7% for the best baseline. The gap grows with tasks that depend on whole-trajectory properties.</p></div>
+    </div>
+    <details style="margin-top:26px;">
+      <summary style="cursor:pointer; font-weight:600;">Full results table (all metrics, std, ablation)</summary>
+      <div style="margin-top:14px;">
+<div class="table-scroll">
+      <table class="results">
+        <thead>
+          <tr>
+            <th rowspan="2" style="text-align:left">Method</th>
+            <th colspan="3">2D Navigation</th>
+            <th colspan="2">Grasping</th>
+            <th colspan="2">Traj. Planning (w/o tool)</th>
+            <th colspan="2">Traj. Planning (w/ tool)</th>
+            <th colspan="2">Box Manipulation</th>
+          </tr>
+          <tr>
+            <th>SR &uarr;</th><th>UNI &uarr;</th><th>COLL &darr;</th>
+            <th>SR &uarr;</th><th>H &uarr;</th>
+            <th>SR &uarr;</th><th>SPL &uarr;</th>
+            <th>SR &uarr;</th><th>SPL &uarr;</th>
+            <th>SR &uarr;</th><th>SPL &uarr;</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>DDIM</td>
+            <td>13.8<span class="std"> &plusmn;3.5</span></td><td>99.2<span class="std"> &plusmn;0.8</span></td><td>38.8<span class="std"> &plusmn;3.2</span></td>
+            <td>19.6<span class="std"> &plusmn;2.4</span></td><td>0.75<span class="std"> &plusmn;0.11</span></td>
+            <td>46.7<span class="std"> &plusmn;7.0</span></td><td>25.0<span class="std"> &plusmn;5.0</span></td>
+            <td>44.0<span class="std"> &plusmn;6.0</span></td><td>24.6<span class="std"> &plusmn;4.6</span></td>
+            <td>0.0<span class="std"> &plusmn;0.0</span></td><td>0.0<span class="std"> &plusmn;0.0</span></td>
+          </tr>
+          <tr>
+            <td>Gradient Guidance</td>
+            <td>4.4<span class="std"> &plusmn;3.3</span></td><td>99.5<span class="std"> &plusmn;0.9</span></td><td>50.3<span class="std"> &plusmn;3.5</span></td>
+            <td>27.5<span class="std"> &plusmn;2.7</span></td><td>0.37<span class="std"> &plusmn;0.08</span></td>
+            <td>52.7<span class="std"> &plusmn;8.1</span></td><td>26.8<span class="std"> &plusmn;4.0</span></td>
+            <td>52.7<span class="std"> &plusmn;10.1</span></td><td>26.0<span class="std"> &plusmn;4.5</span></td>
+            <td>0.0<span class="std"> &plusmn;0.0</span></td><td>0.0<span class="std"> &plusmn;0.0</span></td>
+          </tr>
+          <tr class="group-start">
+            <td>FK Steering</td>
+            <td class="best">90.9<span class="std"> &plusmn;9.1</span></td><td>55.7<span class="std"> &plusmn;10.2</span></td><td class="second">7.6<span class="std"> &plusmn;1.6</span></td>
+            <td class="second">51.1<span class="std"> &plusmn;3.0</span></td><td>1.00<span class="std"> &plusmn;0.09</span></td>
+            <td>51.3<span class="std"> &plusmn;5.0</span></td><td>28.0<span class="std"> &plusmn;4.3</span></td>
+            <td>50.0<span class="std"> &plusmn;6.0</span></td><td>28.0<span class="std"> &plusmn;2.5</span></td>
+            <td>24.0<span class="std"> &plusmn;10.4</span></td><td>17.0<span class="std"> &plusmn;7.0</span></td>
+          </tr>
+          <tr>
+            <td>Path-Space MPPI</td>
+            <td>45.8<span class="std"> &plusmn;3.5</span></td><td>98.4<span class="std"> &plusmn;0.0</span></td><td>27.6<span class="std"> &plusmn;3.7</span></td>
+            <td>21.1<span class="std"> &plusmn;2.4</span></td><td>0.42<span class="std"> &plusmn;0.09</span></td>
+            <td>58.7<span class="std"> &plusmn;8.1</span></td><td>31.5<span class="std"> &plusmn;5.4</span></td>
+            <td>52.7<span class="std"> &plusmn;6.4</span></td><td>28.4<span class="std"> &plusmn;2.1</span></td>
+            <td>29.3<span class="std"> &plusmn;4.2</span></td><td>24.7<span class="std"> &plusmn;4.1</span></td>
+          </tr>
+          <tr>
+            <td>NDPP</td>
+            <td>41.7<span class="std"> &plusmn;3.9</span></td><td>95.8<span class="std"> &plusmn;1.2</span></td><td>30.7<span class="std"> &plusmn;3.2</span></td>
+            <td>32.9<span class="std"> &plusmn;2.8</span></td><td>0.83<span class="std"> &plusmn;0.09</span></td>
+            <td>76.7<span class="std"> &plusmn;4.6</span></td><td>41.8<span class="std"> &plusmn;2.2</span></td>
+            <td>71.3<span class="std"> &plusmn;12.1</span></td><td>40.3<span class="std"> &plusmn;6.3</span></td>
+            <td>42.7<span class="std"> &plusmn;4.2</span></td><td>32.4<span class="std"> &plusmn;3.9</span></td>
+          </tr>
+          <tr class="group-start">
+            <td>MOSAIC (Ours)</td>
+            <td class="second">80.7<span class="std"> &plusmn;0.9</span></td><td class="second">99.5<span class="std"> &plusmn;0.5</span></td><td class="best">3.9<span class="std"> &plusmn;0.0</span></td>
+            <td class="best">53.2<span class="std"> &plusmn;3.0</span></td><td class="second">1.03<span class="std"> &plusmn;0.09</span></td>
+            <td class="second">86.7<span class="std"> &plusmn;3.1</span></td><td class="second">47.9<span class="std"> &plusmn;1.7</span></td>
+            <td class="second">79.3<span class="std"> &plusmn;3.1</span></td><td class="second">46.3<span class="std"> &plusmn;2.0</span></td>
+            <td class="best">78.7<span class="std"> &plusmn;6.1</span></td><td class="best">67.6<span class="std"> &plusmn;5.1</span></td>
+          </tr>
+          <tr>
+            <td>&nbsp;&nbsp;w/o support cost</td>
+            <td>67.2<span class="std"> &plusmn;0.8</span></td><td class="best">99.7<span class="std"> &plusmn;0.5</span></td><td>23.2<span class="std"> &plusmn;1.2</span></td>
+            <td>50.4<span class="std"> &plusmn;3.0</span></td><td class="best">1.04<span class="std"> &plusmn;0.07</span></td>
+            <td class="best">87.3<span class="std"> &plusmn;2.3</span></td><td class="best">48.2<span class="std"> &plusmn;1.6</span></td>
+            <td class="best">81.3<span class="std"> &plusmn;1.2</span></td><td class="best">47.7<span class="std"> &plusmn;0.8</span></td>
+            <td class="second">78.0<span class="std"> &plusmn;5.3</span></td><td class="second">67.2<span class="std"> &plusmn;4.7</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="legend"><b>Bold</b> = best, <u>underline</u> = second best. SR: success rate (%), UNI: unique solutions (%), COLL: maze-wall collisions (%), H: mode entropy, SPL: success weighted by path length (%). Mean &plusmn; std over three seeds (navigation: eight mazes with 16 trajectories each; planning and box manipulation: 50 trials per seed); grasping reports binomial standard error over 280 grasps. Sampling-based methods use matched initial populations and DDIM steps.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section id="hardware" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Hardware</p>
+    <h2 class="section-title">Real-World Demos</h2>
+    <p class="section-lead">Two independently trained single-arm models, one per arm, lift and move objects together on a dual-arm Franka setup.</p>
+    <div class="media-row" style="grid-template-columns:1fr; gap:22px;">
+      <figure class="figure-card">
+        <video class="clip" src="assets/video/clip_hw_pan.mp4" muted loop playsinline preload="metadata" data-lazy></video>
+        <p class="clip-cap">Pinch grasp &middot; small pan (1.5&times;)</p>
+      </figure>
+      <figure class="figure-card">
+        <video class="clip" src="assets/video/clip_hw_box.mp4" muted loop playsinline preload="metadata" data-lazy></video>
+        <p class="clip-cap">Flat-hand and regular grasps &middot; basket (2&times;)</p>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="video" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Supplementary Video</p>
+    <h2 class="section-title">Overview of Method and Experiments</h2>
+    <p class="section-lead">Covers motivation, method, simulation benchmarks, and real-world dual-arm experiments.</p>
+    <figure class="figure-card">
+      <video controls preload="metadata" poster="assets/img/poster.jpg" style="width:100%; border-radius:8px;">
+        <source src="assets/video/supp.mp4" type="video/mp4" />
+      </video>
+    </figure>
+  </div>
+</section>
+
+<section id="bibtex" class="section">
+  <div class="wrap">
+    <p class="eyebrow">Citation</p>
+    <h2 class="section-title">BibTeX</h2>
+    <div class="bibtex-box">
+      <button class="copy-btn" type="button">Copy</button>
+<pre class="bibtex">@article{bodmer2026mosaic,
+  title   = {{MOSAIC}: Mode- and Support-Aware Inference-Time Control of Robot Diffusion Models},
+  author  = {Bodmer, Sabrina and Rickenbach, Rahel and Zurbr{\"u}gg, Ren{\'e} and Zeilinger, Melanie N. and Jones, Colin},
+  journal = {arXiv preprint},
+  year    = {2026}
+}</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><b>MOSAIC</b> &mdash; ETH Z&uuml;rich &amp; EPFL.</p>
+    <p style="font-size:.85rem; opacity:.8;">This research has been supported by the Swiss National Science Foundation under the NCCR Automation (grant 51NF40_225155) and an ETH AI Center doctoral fellowship awarded to Ren&eacute; Zurbr&uuml;gg. We thank Agile Robots for providing the Mobile FR3 Duo robot used for this work.</p>
+  </div>
+</footer>
+
+<script src="assets/js/main.js"></script>
+</body>
+</html>
